@@ -1,0 +1,414 @@
+using System;
+using System.Collections.Generic;
+using SchoolOfFish.Data;
+using UnityEngine;
+
+namespace SchoolOfFish.Core
+{
+    public class BoidsManager : MonoBehaviour
+    {
+        [SerializeField] private BoidsSettings settings;
+        [SerializeField] private FishAgent fishPrefab;
+        [SerializeField] private Transform schoolRoot;
+        [SerializeField] private PredatorController predator;
+        [SerializeField] private EnvironmentProvider environmentProvider;
+        [SerializeField] private FishPersonality[] personalityPool;
+
+        private readonly List<FishAgent> _agents = new List<FishAgent>(512);
+        private readonly List<AgentState> _states = new List<AgentState>(512);
+        private readonly Dictionary<int, List<int>> _spatialHash = new Dictionary<int, List<int>>(512);
+
+        private struct AgentState
+        {
+            public Vector3 Position;
+            public Vector3 Velocity;
+            public float PanicTimer;
+            public FishPersonality Personality;
+            public float WanderSeed;
+        }
+
+        private void Start()
+        {
+            if (settings == null || fishPrefab == null)
+            {
+                Debug.LogWarning("BoidsManager is missing required references.");
+                enabled = false;
+                return;
+            }
+
+            if (schoolRoot == null)
+            {
+                schoolRoot = transform;
+            }
+
+            SpawnInitialFish();
+        }
+
+        private void Update()
+        {
+            float dt = Mathf.Min(Time.deltaTime, 0.05f);
+            if (dt <= 0f || _states.Count == 0)
+            {
+                return;
+            }
+
+            BuildSpatialHash();
+
+            float dayNightBlend = environmentProvider != null ? environmentProvider.Night01 : 0f;
+            float alignmentWeight = settings.alignmentWeight * Mathf.Lerp(1f, settings.nightAlignmentMultiplier, dayNightBlend);
+            float speedFactor = Mathf.Lerp(1f, settings.nightSpeedMultiplier, dayNightBlend);
+
+            for (int i = 0; i < _states.Count; i++)
+            {
+                AgentState state = _states[i];
+                int neighborCount;
+                int panickedNeighborCount;
+
+                Vector3 separation = ComputeSeparation(i, state.Position, out neighborCount, out panickedNeighborCount);
+                Vector3 alignment = ComputeAlignment(i, state.Position);
+                Vector3 cohesion = ComputeCohesion(i, state.Position);
+                Vector3 flee = ComputeFlee(state.Position);
+                Vector3 wander = ComputeWander(i, dt);
+                Vector3 boundary = ComputeBoundary(state.Position);
+
+                bool isPanicked = UpdatePanicState(ref state, neighborCount, panickedNeighborCount, flee.sqrMagnitude > 0f, dt);
+
+                float personalitySpeed = state.Personality != null ? state.Personality.maxSpeedVariance : 1f;
+                float timidness = state.Personality != null ? state.Personality.timidness : 1f;
+
+                float maxSpeed = settings.baseMaxSpeed * speedFactor * personalitySpeed;
+                float maxForce = settings.baseMaxForce;
+                if (isPanicked)
+                {
+                    maxSpeed *= settings.panicSpeedMultiplier;
+                    maxForce *= settings.panicForceMultiplier;
+                }
+
+                Vector3 desired =
+                    separation * settings.separationWeight +
+                    alignment * alignmentWeight +
+                    cohesion * settings.cohesionWeight +
+                    flee * timidness +
+                    wander * settings.wanderWeight +
+                    boundary * settings.boundaryWeight;
+
+                Vector3 steer = Vector3.ClampMagnitude(desired, maxForce);
+                state.Velocity = Vector3.ClampMagnitude(state.Velocity + steer * dt, maxSpeed);
+                state.Position += state.Velocity * dt;
+
+                KeepInsideBounds(ref state.Position, ref state.Velocity);
+
+                _states[i] = state;
+                _agents[i].ApplySimulation(state.Position, state.Velocity);
+                _agents[i].SetPanicVisual(Mathf.Clamp01(state.PanicTimer / settings.panicDuration));
+            }
+        }
+
+        private void SpawnInitialFish()
+        {
+            _agents.Clear();
+            _states.Clear();
+
+            for (int i = 0; i < settings.fishCount; i++)
+            {
+                Vector3 localPos = new Vector3(
+                    UnityEngine.Random.Range(-settings.spawnExtents.x, settings.spawnExtents.x),
+                    UnityEngine.Random.Range(-settings.spawnExtents.y, settings.spawnExtents.y),
+                    UnityEngine.Random.Range(-settings.spawnExtents.z, settings.spawnExtents.z));
+
+                FishAgent agent = Instantiate(fishPrefab, schoolRoot.TransformPoint(localPos), Quaternion.identity, schoolRoot);
+                _agents.Add(agent);
+
+                Vector3 dir = UnityEngine.Random.onUnitSphere;
+                dir.y *= 0.5f;
+                if (dir.sqrMagnitude < 0.001f)
+                {
+                    dir = Vector3.forward;
+                }
+
+                _states.Add(new AgentState
+                {
+                    Position = agent.transform.position,
+                    Velocity = dir.normalized * settings.baseMaxSpeed * 0.6f,
+                    PanicTimer = 0f,
+                    Personality = GetRandomPersonality(),
+                    WanderSeed = UnityEngine.Random.value * 1000f
+                });
+            }
+        }
+
+        private FishPersonality GetRandomPersonality()
+        {
+            if (personalityPool == null || personalityPool.Length == 0)
+            {
+                return null;
+            }
+
+            return personalityPool[UnityEngine.Random.Range(0, personalityPool.Length)];
+        }
+
+        private Vector3 ComputeSeparation(int index, Vector3 position, out int neighborCount, out int panickedNeighborCount)
+        {
+            neighborCount = 0;
+            panickedNeighborCount = 0;
+            Vector3 separation = Vector3.zero;
+
+            foreach (int n in EnumerateNeighbors(index, position, settings.neighborRadius))
+            {
+                Vector3 toMe = position - _states[n].Position;
+                float sqrDist = toMe.sqrMagnitude;
+                if (sqrDist < 0.0001f)
+                {
+                    continue;
+                }
+
+                neighborCount++;
+                if (_states[n].PanicTimer > 0f)
+                {
+                    panickedNeighborCount++;
+                }
+
+                if (sqrDist <= settings.separationRadius * settings.separationRadius)
+                {
+                    separation += toMe / (sqrDist + 0.01f);
+                }
+            }
+
+            return separation.normalized;
+        }
+
+        private Vector3 ComputeAlignment(int index, Vector3 position)
+        {
+            Vector3 sum = Vector3.zero;
+            int count = 0;
+
+            foreach (int n in EnumerateNeighbors(index, position, settings.neighborRadius))
+            {
+                sum += _states[n].Velocity;
+                count++;
+            }
+
+            if (count == 0)
+            {
+                return Vector3.zero;
+            }
+
+            return (sum / count).normalized;
+        }
+
+        private Vector3 ComputeCohesion(int index, Vector3 position)
+        {
+            Vector3 center = Vector3.zero;
+            int count = 0;
+
+            foreach (int n in EnumerateNeighbors(index, position, settings.neighborRadius))
+            {
+                center += _states[n].Position;
+                count++;
+            }
+
+            if (count == 0)
+            {
+                return Vector3.zero;
+            }
+
+            center /= count;
+            return (center - position).normalized;
+        }
+
+        private Vector3 ComputeFlee(Vector3 position)
+        {
+            if (predator == null)
+            {
+                return Vector3.zero;
+            }
+
+            Vector3 toFish = position - predator.Position;
+            float sqrDist = toFish.sqrMagnitude;
+            float fearSqr = settings.predatorFearRadius * settings.predatorFearRadius;
+            if (sqrDist > fearSqr)
+            {
+                return Vector3.zero;
+            }
+
+            float danger01 = 1f - Mathf.Clamp01(Mathf.Sqrt(sqrDist) / settings.predatorFearRadius);
+            return toFish.normalized * (0.3f + 0.7f * danger01);
+        }
+
+        private Vector3 ComputeWander(int index, float dt)
+        {
+            AgentState s = _states[index];
+            float t = Time.time * 0.35f + s.WanderSeed;
+            float x = Mathf.PerlinNoise(t, 0.17f) * 2f - 1f;
+            float y = Mathf.PerlinNoise(0.91f, t) * 2f - 1f;
+            float z = Mathf.PerlinNoise(t, 0.63f) * 2f - 1f;
+            return new Vector3(x, y * 0.5f, z).normalized;
+        }
+
+        private Vector3 ComputeBoundary(Vector3 worldPos)
+        {
+            Vector3 center = schoolRoot.position;
+            Vector3 offset = worldPos - center;
+            Vector3 ext = settings.spawnExtents;
+
+            Vector3 steer = Vector3.zero;
+            if (Mathf.Abs(offset.x) > ext.x)
+            {
+                steer.x = -Mathf.Sign(offset.x);
+            }
+            if (Mathf.Abs(offset.y) > ext.y)
+            {
+                steer.y = -Mathf.Sign(offset.y) * 0.6f;
+            }
+            if (Mathf.Abs(offset.z) > ext.z)
+            {
+                steer.z = -Mathf.Sign(offset.z);
+            }
+
+            return steer.normalized;
+        }
+
+        private bool UpdatePanicState(ref AgentState state, int neighborCount, int panickedNeighborCount, bool predatorNearby, float dt)
+        {
+            if (predatorNearby)
+            {
+                state.PanicTimer = settings.panicDuration;
+            }
+            else if (neighborCount > 0)
+            {
+                float ratio = (float)panickedNeighborCount / neighborCount;
+                if (ratio >= settings.panicSpreadThreshold)
+                {
+                    state.PanicTimer = Mathf.Max(state.PanicTimer, settings.panicDuration * 0.65f);
+                }
+            }
+
+            if (state.PanicTimer > 0f)
+            {
+                state.PanicTimer = Mathf.Max(0f, state.PanicTimer - dt);
+            }
+
+            return state.PanicTimer > 0f;
+        }
+
+        private void KeepInsideBounds(ref Vector3 position, ref Vector3 velocity)
+        {
+            Vector3 local = schoolRoot.InverseTransformPoint(position);
+            Vector3 ext = settings.spawnExtents;
+            bool changed = false;
+
+            if (Mathf.Abs(local.x) > ext.x)
+            {
+                local.x = Mathf.Clamp(local.x, -ext.x, ext.x);
+                velocity.x *= -0.4f;
+                changed = true;
+            }
+            if (Mathf.Abs(local.y) > ext.y)
+            {
+                local.y = Mathf.Clamp(local.y, -ext.y, ext.y);
+                velocity.y *= -0.4f;
+                changed = true;
+            }
+            if (Mathf.Abs(local.z) > ext.z)
+            {
+                local.z = Mathf.Clamp(local.z, -ext.z, ext.z);
+                velocity.z *= -0.4f;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                position = schoolRoot.TransformPoint(local);
+            }
+        }
+
+        private IEnumerable<int> EnumerateNeighbors(int selfIndex, Vector3 position, float radius)
+        {
+            Vector3Int cell = WorldToCell(position);
+            int range = Mathf.Max(1, settings.maxNeighborCellsPerAxis);
+            float radiusSqr = radius * radius;
+
+            for (int x = -range; x <= range; x++)
+            {
+                for (int y = -range; y <= range; y++)
+                {
+                    for (int z = -range; z <= range; z++)
+                    {
+                        int key = Hash(cell.x + x, cell.y + y, cell.z + z);
+                        if (!_spatialHash.TryGetValue(key, out List<int> bucket))
+                        {
+                            continue;
+                        }
+
+                        for (int i = 0; i < bucket.Count; i++)
+                        {
+                            int idx = bucket[i];
+                            if (idx == selfIndex)
+                            {
+                                continue;
+                            }
+
+                            if ((_states[idx].Position - position).sqrMagnitude <= radiusSqr)
+                            {
+                                yield return idx;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private void BuildSpatialHash()
+        {
+            _spatialHash.Clear();
+
+            for (int i = 0; i < _states.Count; i++)
+            {
+                Vector3Int cell = WorldToCell(_states[i].Position);
+                int key = Hash(cell.x, cell.y, cell.z);
+
+                if (!_spatialHash.TryGetValue(key, out List<int> bucket))
+                {
+                    bucket = new List<int>(16);
+                    _spatialHash.Add(key, bucket);
+                }
+
+                bucket.Add(i);
+            }
+        }
+
+        private Vector3Int WorldToCell(Vector3 world)
+        {
+            float cell = Mathf.Max(0.1f, settings.hashCellSize);
+            Vector3 local = schoolRoot.InverseTransformPoint(world);
+            return new Vector3Int(
+                Mathf.FloorToInt(local.x / cell),
+                Mathf.FloorToInt(local.y / cell),
+                Mathf.FloorToInt(local.z / cell));
+        }
+
+        private static int Hash(int x, int y, int z)
+        {
+            unchecked
+            {
+                int h = x * 73856093;
+                h ^= y * 19349663;
+                h ^= z * 83492791;
+                return h;
+            }
+        }
+
+        private void OnDrawGizmosSelected()
+        {
+            if (settings == null)
+            {
+                return;
+            }
+
+            Transform root = schoolRoot != null ? schoolRoot : transform;
+            Gizmos.color = new Color(0.25f, 0.75f, 1f, 0.35f);
+            Gizmos.matrix = Matrix4x4.TRS(root.position, root.rotation, Vector3.one);
+            Gizmos.DrawWireCube(Vector3.zero, settings.spawnExtents * 2f);
+        }
+    }
+}

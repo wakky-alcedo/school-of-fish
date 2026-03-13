@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ab6e8d6241a632749872f24d4d924202, type: 3}
+  m_Name: BoidsSettings
+  m_EditorClassIdentifier: Assembly-CSharp::SchoolOfFish.Data.BoidsSettings
+  fishCount: 500
+  spawnExtents: {x: 30, y: 12, z: 30}
+  neighborRadius: 4.5
+  separationRadius: 1.6
+  baseMaxSpeed: 6
+  baseMaxForce: 10
+  separationWeight: 1.7
+  alignmentWeight: 1
+  cohesionWeight: 1.1
+  wanderWeight: 0.35
+  boundaryWeight: 0.8
+  predatorFearRadius: 8
+  panicDuration: 2.5
+  panicSpreadRadius: 5.5
+  panicSpreadThreshold: 0.35
+  panicSpeedMultiplier: 1.8
+  panicForceMultiplier: 1.5
+  nightAlignmentMultiplier: 0.5
+  nightSpeedMultiplier: 0.65
+  hashCellSize: 5
+  maxNeighborCellsPerAxis: 1

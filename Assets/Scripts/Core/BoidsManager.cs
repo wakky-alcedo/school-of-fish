@@ -23,8 +23,6 @@ namespace SchoolOfFish.Core
         private Material _runtimeFishMaterial;
         private Material _runtimeTrailMaterial;
 
-        public BoidsSettings Settings => settings;
-
         private struct AgentState
         {
             public Vector3 Position;

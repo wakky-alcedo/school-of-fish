@@ -16,8 +16,6 @@ namespace SchoolOfFish.Core
         [SerializeField] private PredatorController predator;
         [SerializeField] private EnvironmentProvider environmentProvider;
         [SerializeField] private FishPersonality[] personalityPool;
-        [SerializeField] private bool overrideSpawnExtents;
-        [SerializeField] private Vector3 spawnExtentsOverride = new Vector3(30f, 12f, 30f);
 
         private readonly List<FishAgent> _agents = new List<FishAgent>(512);
         private readonly List<AgentState> _states = new List<AgentState>(512);
@@ -32,22 +30,6 @@ namespace SchoolOfFish.Core
             public float PanicTimer;
             public FishPersonality Personality;
             public float WanderSeed;
-        }
-
-        private Vector3 ActiveSpawnExtents
-        {
-            get
-            {
-                if (overrideSpawnExtents)
-                {
-                    return new Vector3(
-                        Mathf.Max(0.1f, spawnExtentsOverride.x),
-                        Mathf.Max(0.1f, spawnExtentsOverride.y),
-                        Mathf.Max(0.1f, spawnExtentsOverride.z));
-                }
-
-                return settings != null ? settings.spawnExtents : new Vector3(30f, 12f, 30f);
-            }
         }
 
         private void Start()
@@ -209,14 +191,12 @@ namespace SchoolOfFish.Core
             _agents.Clear();
             _states.Clear();
 
-            Vector3 extents = ActiveSpawnExtents;
-
             for (int i = 0; i < settings.fishCount; i++)
             {
                 Vector3 localPos = new Vector3(
-                    UnityEngine.Random.Range(-extents.x, extents.x),
-                    UnityEngine.Random.Range(-extents.y, extents.y),
-                    UnityEngine.Random.Range(-extents.z, extents.z));
+                    UnityEngine.Random.Range(-settings.spawnExtents.x, settings.spawnExtents.x),
+                    UnityEngine.Random.Range(-settings.spawnExtents.y, settings.spawnExtents.y),
+                    UnityEngine.Random.Range(-settings.spawnExtents.z, settings.spawnExtents.z));
 
                 FishAgent agent = CreateFishInstance(schoolRoot.TransformPoint(localPos));
                 _agents.Add(agent);
@@ -414,7 +394,7 @@ namespace SchoolOfFish.Core
         {
             Vector3 center = schoolRoot.position;
             Vector3 offset = worldPos - center;
-            Vector3 ext = ActiveSpawnExtents;
+            Vector3 ext = settings.spawnExtents;
 
             Vector3 steer = Vector3.zero;
             if (Mathf.Abs(offset.x) > ext.x)
@@ -459,7 +439,7 @@ namespace SchoolOfFish.Core
         private void KeepInsideBounds(ref Vector3 position, ref Vector3 velocity)
         {
             Vector3 local = schoolRoot.InverseTransformPoint(position);
-            Vector3 ext = ActiveSpawnExtents;
+            Vector3 ext = settings.spawnExtents;
             bool changed = false;
 
             if (Mathf.Abs(local.x) > ext.x)
@@ -573,7 +553,7 @@ namespace SchoolOfFish.Core
             Transform root = schoolRoot != null ? schoolRoot : transform;
             Gizmos.color = new Color(0.25f, 0.75f, 1f, 0.35f);
             Gizmos.matrix = Matrix4x4.TRS(root.position, root.rotation, Vector3.one);
-            Gizmos.DrawWireCube(Vector3.zero, ActiveSpawnExtents * 2f);
+            Gizmos.DrawWireCube(Vector3.zero, settings.spawnExtents * 2f);
         }
     }
 }

@@ -226,10 +226,15 @@ namespace SchoolOfFish.Core
                 return Instantiate(fishPrefab, worldPosition, Quaternion.identity, schoolRoot);
             }
 
+            GameObject root = new GameObject("Fish");
+            root.transform.SetParent(schoolRoot, false);
+            root.transform.position = worldPosition;
+
             GameObject body = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            body.name = "Fish";
-            body.transform.SetParent(schoolRoot, false);
-            body.transform.position = worldPosition;
+            body.name = "Body";
+            body.transform.SetParent(root.transform, false);
+            body.transform.localPosition = Vector3.zero;
+            body.transform.localRotation = Quaternion.Euler(90f, 180f, 0f);
             body.transform.localScale = new Vector3(0.18f, 0.35f, 0.18f);
 
             Collider collider = body.GetComponent<Collider>();
@@ -238,7 +243,7 @@ namespace SchoolOfFish.Core
                 Destroy(collider);
             }
 
-            TrailRenderer trail = body.AddComponent<TrailRenderer>();
+            TrailRenderer trail = root.AddComponent<TrailRenderer>();
             trail.time = 0.6f;
             trail.startWidth = 0.08f;
             trail.endWidth = 0f;
@@ -274,7 +279,7 @@ namespace SchoolOfFish.Core
                 trail.sharedMaterial = _runtimeTrailMaterial;
             }
 
-            return body.AddComponent<FishAgent>();
+            return root.AddComponent<FishAgent>();
         }
 
         private FishPersonality GetRandomPersonality()

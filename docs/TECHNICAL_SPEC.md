@@ -1,7 +1,7 @@
 # Healing Fish School — 技術仕様書
 
 > **対応要求仕様書:** [SPECIFICATION.md](../SPECIFICATION.md)
-> 最終更新: 2026-03-13
+> 最終更新: 2026-03-14
 
 ---
 
@@ -95,6 +95,13 @@ private struct AgentState
    - `KeepInsideBounds()` — 境界で速度反転・クランプ
 3. `FishAgent.ApplySimulation()` で位置・回転を反映
 4. `FishAgent.SetPanicVisual(panic01)` で Emission / Trail を更新
+
+**初期生成定義（向き整合）:**
+
+- `fishPrefab` あり: `Fish.prefab` を生成
+- `fishPrefab` なし: ランタイムで `Fish(root) + Body(child)` を生成
+- どちらも `Body.localRotation = Quaternion.Euler(90, 180, 0)` を採用し，
+  `LookRotation(velocity)` の +Z 前方と見た目の頭方向を一致させる
 
 **空間ハッシュ近傍探索:**
 
@@ -304,7 +311,8 @@ SampleScene
 │     ← EnvironmentProvider が Bloom / DoF / Vignette / ColorAdjustments を更新
 ├── SchoolRoot               [BoidsManager]
 │     ← 小魚 500 体の親 Transform を兼ねる
-│     └── Fish(0〜499)       [FishAgent, Renderer, TrailRenderer]
+│     └── Fish(0〜499)       [FishAgent, TrailRenderer]
+│          └── Body          [Renderer]
 ├── EnvironmentController    [EnvironmentProvider]
 ├── CameraManager            [CameraManager]
 └── Predator                 [PredatorController]
@@ -319,7 +327,7 @@ SampleScene
 | ステップ | メニュー項目 | 処理内容 |
 |---------|------------|---------|
 | 1 | `1. Create Settings Assets` | `BoidsSettings` / `FishPersonality` / `TimeCycleSettings` アセットを `Assets/Settings/` に作成 |
-| 2 | `2. Create Fish Prefab` | Capsule ボディ + TrailRenderer + `FishAgent` の Fish.prefab を `Assets/Prefabs/` に作成 |
+| 2 | `2. Create Fish Prefab` | `Fish(root)` 配下に `Body(child)` を持つ Fish.prefab を `Assets/Prefabs/` に作成（`Body.localRotation = Quaternion.Euler(90,180,0)`） |
 | 3 | `3. Wire Scene References` | シーン内の全コンポーネント間の参照を設定，Volume Override を追加，シーンをダーティマーク |
 
 ---

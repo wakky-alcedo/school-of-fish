@@ -40,7 +40,9 @@ namespace SchoolOfFish.Editor
             body.name = "Body";
             body.transform.SetParent(root.transform);
             body.transform.localPosition = Vector3.zero;
-            body.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            // LookRotation はオブジェクトの +Z を進行方向に合わせるため、
+            // ボディの見た目上の頭方向も +Z に揃える。
+            body.transform.localRotation = Quaternion.Euler(90f, 180f, 0f);
             body.transform.localScale = new Vector3(0.18f, 0.35f, 0.18f);
 
             // Colliderは不要なので削除

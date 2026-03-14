@@ -7,7 +7,7 @@ namespace SchoolOfFish.Data
     {
         [Header("Population")]
         [Min(1)] public int fishCount = 500;
-        public Vector3 spawnExtents = new Vector3(30f, 12f, 30f);
+        public Vector3 spawnExtents = new Vector3(10f, 12f, 10f);
 
         [Header("Core Boids")]
         [Min(0f)] public float neighborRadius = 4.5f;

@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using SchoolOfFish.Data;
 using UnityEngine;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace SchoolOfFish.Core
 {
@@ -17,6 +20,8 @@ namespace SchoolOfFish.Core
         private readonly List<FishAgent> _agents = new List<FishAgent>(512);
         private readonly List<AgentState> _states = new List<AgentState>(512);
         private readonly Dictionary<int, List<int>> _spatialHash = new Dictionary<int, List<int>>(512);
+        private Material _runtimeFishMaterial;
+        private Material _runtimeTrailMaterial;
 
         private struct AgentState
         {
@@ -29,9 +34,11 @@ namespace SchoolOfFish.Core
 
         private void Start()
         {
-            if (settings == null || fishPrefab == null)
+            TryAutoAssignReferences();
+
+            if (settings == null)
             {
-                Debug.LogWarning("BoidsManager is missing required references.");
+                Debug.LogWarning("BoidsManager is missing required reference: settings.");
                 enabled = false;
                 return;
             }
@@ -41,8 +48,83 @@ namespace SchoolOfFish.Core
                 schoolRoot = transform;
             }
 
+            if (fishPrefab == null)
+            {
+                Debug.LogWarning("BoidsManager: fishPrefab is not assigned. Using runtime-generated fish instances.");
+            }
+
             SpawnInitialFish();
         }
+
+        private void TryAutoAssignReferences()
+        {
+            if (schoolRoot == null)
+            {
+                schoolRoot = transform;
+            }
+
+            if (predator == null)
+            {
+                predator = FindFirstObjectByType<PredatorController>();
+            }
+
+            if (environmentProvider == null)
+            {
+                environmentProvider = FindFirstObjectByType<EnvironmentProvider>();
+            }
+
+#if UNITY_EDITOR
+            if (settings == null)
+            {
+                settings = AssetDatabase.LoadAssetAtPath<BoidsSettings>("Assets/Settings/BoidsSettings.asset");
+            }
+
+            if (fishPrefab == null)
+            {
+                fishPrefab = AssetDatabase.LoadAssetAtPath<FishAgent>("Assets/Prefabs/Fish.prefab");
+            }
+
+            if (fishPrefab == null)
+            {
+                fishPrefab = FindFishPrefabInProject();
+            }
+
+            if ((personalityPool == null || personalityPool.Length == 0))
+            {
+                FishPersonality defaultPersonality = AssetDatabase.LoadAssetAtPath<FishPersonality>(
+                    "Assets/Settings/FishPersonality_Default.asset");
+                if (defaultPersonality != null)
+                {
+                    personalityPool = new[] { defaultPersonality };
+                }
+            }
+#endif
+        }
+
+#if UNITY_EDITOR
+        private static FishAgent FindFishPrefabInProject()
+        {
+            string[] prefabGuids = AssetDatabase.FindAssets("t:Prefab", new[] { "Assets" });
+            for (int i = 0; i < prefabGuids.Length; i++)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(prefabGuids[i]);
+                GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (prefab == null)
+                {
+                    continue;
+                }
+
+                FishAgent fish = prefab.GetComponent<FishAgent>();
+                if (fish != null)
+                {
+                    Debug.Log("BoidsManager: Auto-assigned fishPrefab from " + path);
+                    return fish;
+                }
+            }
+
+            return null;
+        }
+#endif
 
         private void Update()
         {
@@ -116,7 +198,7 @@ namespace SchoolOfFish.Core
                     UnityEngine.Random.Range(-settings.spawnExtents.y, settings.spawnExtents.y),
                     UnityEngine.Random.Range(-settings.spawnExtents.z, settings.spawnExtents.z));
 
-                FishAgent agent = Instantiate(fishPrefab, schoolRoot.TransformPoint(localPos), Quaternion.identity, schoolRoot);
+                FishAgent agent = CreateFishInstance(schoolRoot.TransformPoint(localPos));
                 _agents.Add(agent);
 
                 Vector3 dir = UnityEngine.Random.onUnitSphere;
@@ -135,6 +217,64 @@ namespace SchoolOfFish.Core
                     WanderSeed = UnityEngine.Random.value * 1000f
                 });
             }
+        }
+
+        private FishAgent CreateFishInstance(Vector3 worldPosition)
+        {
+            if (fishPrefab != null)
+            {
+                return Instantiate(fishPrefab, worldPosition, Quaternion.identity, schoolRoot);
+            }
+
+            GameObject body = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            body.name = "Fish";
+            body.transform.SetParent(schoolRoot, false);
+            body.transform.position = worldPosition;
+            body.transform.localScale = new Vector3(0.18f, 0.35f, 0.18f);
+
+            Collider collider = body.GetComponent<Collider>();
+            if (collider != null)
+            {
+                Destroy(collider);
+            }
+
+            TrailRenderer trail = body.AddComponent<TrailRenderer>();
+            trail.time = 0.6f;
+            trail.startWidth = 0.08f;
+            trail.endWidth = 0f;
+            trail.minVertexDistance = 0.06f;
+
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (shader == null)
+            {
+                shader = Shader.Find("Standard");
+            }
+
+            if (shader != null)
+            {
+                Renderer renderer = body.GetComponent<Renderer>();
+
+                if (_runtimeFishMaterial == null)
+                {
+                    _runtimeFishMaterial = new Material(shader)
+                    {
+                        color = new Color(0.2f, 0.65f, 0.8f, 1f)
+                    };
+                }
+
+                if (_runtimeTrailMaterial == null)
+                {
+                    _runtimeTrailMaterial = new Material(shader)
+                    {
+                        color = new Color(0.15f, 0.95f, 1f, 0.85f)
+                    };
+                }
+
+                renderer.sharedMaterial = _runtimeFishMaterial;
+                trail.sharedMaterial = _runtimeTrailMaterial;
+            }
+
+            return body.AddComponent<FishAgent>();
         }
 
         private FishPersonality GetRandomPersonality()

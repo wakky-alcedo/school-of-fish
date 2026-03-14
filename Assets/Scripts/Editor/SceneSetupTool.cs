@@ -1,5 +1,6 @@
 using SchoolOfFish.Core;
 using SchoolOfFish.Data;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -16,6 +17,7 @@ namespace SchoolOfFish.Editor
         [MenuItem(MenuRoot + "1. Create Settings Assets")]
         public static void CreateSettingsAssets()
         {
+            EnsureFolder("Assets", "Settings");
             CreateOrLoad<BoidsSettings>("Assets/Settings/BoidsSettings.asset");
             CreateOrLoad<FishPersonality>("Assets/Settings/FishPersonality_Default.asset");
             CreateOrLoad<TimeCycleSettings>("Assets/Settings/TimeCycleSettings.asset");
@@ -27,6 +29,7 @@ namespace SchoolOfFish.Editor
         [MenuItem(MenuRoot + "2. Create Fish Prefab")]
         public static void CreateFishPrefab()
         {
+            EnsureFolder("Assets", "Prefabs");
             string prefabPath = PrefabsFolder + "/Fish.prefab";
 
             // ルートオブジェクト
@@ -88,11 +91,17 @@ namespace SchoolOfFish.Editor
             }
 
             // FishAgentコンポーネント
-            FishAgent agent = root.AddComponent<FishAgent>();
+            root.AddComponent<FishAgent>();
 
             // プレハブ化して保存
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
             Object.DestroyImmediate(root);
+
+            if (prefab == null)
+            {
+                Debug.LogError("[SchoolOfFish] Failed to create Fish prefab at " + prefabPath);
+                return;
+            }
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -172,10 +181,188 @@ namespace SchoolOfFish.Editor
         [MenuItem(MenuRoot + "Run All Setup Steps")]
         public static void RunAll()
         {
+            RemoveMissingScriptsInSceneAndPrefabs();
             CreateSettingsAssets();
             CreateFishPrefab();
             WireSceneReferences();
             Debug.Log("[SchoolOfFish] All setup steps complete.");
+        }
+
+        [MenuItem(MenuRoot + "0. Remove Missing Scripts")]
+        public static void RemoveMissingScriptsInSceneAndPrefabs()
+        {
+            int removedInScene = RemoveMissingScriptsInActiveScene();
+            int removedInPrefabs = RemoveMissingScriptsInPrefabs();
+
+            if (removedInScene > 0)
+            {
+                UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(
+                    UnityEngine.SceneManagement.SceneManager.GetActiveScene());
+            }
+
+            Debug.Log($"[SchoolOfFish] Removed missing scripts. Scene={removedInScene}, Prefabs={removedInPrefabs}");
+        }
+
+        [MenuItem(MenuRoot + "Debug/Report Missing Scripts (Scene + Prefabs)")]
+        public static void ReportMissingScriptsInSceneAndPrefabs()
+        {
+            int sceneCount = ReportMissingScriptsInActiveScene();
+            int prefabCount = ReportMissingScriptsInPrefabs();
+            int total = sceneCount + prefabCount;
+
+            if (total == 0)
+            {
+                Debug.Log("[SchoolOfFish][Debug] Missing Script は検出されませんでした。");
+                return;
+            }
+
+            Debug.LogWarning($"[SchoolOfFish][Debug] Missing Script 合計: {total} (Scene={sceneCount}, Prefabs={prefabCount})");
+        }
+
+        private static int RemoveMissingScriptsInActiveScene()
+        {
+            int removedCount = 0;
+            UnityEngine.SceneManagement.Scene scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+            if (!scene.IsValid())
+            {
+                return 0;
+            }
+
+            GameObject[] roots = scene.GetRootGameObjects();
+            for (int i = 0; i < roots.Length; i++)
+            {
+                removedCount += RemoveMissingScriptsRecursive(roots[i]);
+            }
+
+            return removedCount;
+        }
+
+        private static int ReportMissingScriptsInActiveScene()
+        {
+            int foundCount = 0;
+            UnityEngine.SceneManagement.Scene scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+            if (!scene.IsValid())
+            {
+                Debug.LogWarning("[SchoolOfFish][Debug] Active scene is invalid.");
+                return 0;
+            }
+
+            GameObject[] roots = scene.GetRootGameObjects();
+            for (int i = 0; i < roots.Length; i++)
+            {
+                foundCount += ReportMissingScriptsRecursive(roots[i], $"Scene:{scene.path}");
+            }
+
+            return foundCount;
+        }
+
+        private static int RemoveMissingScriptsInPrefabs()
+        {
+            int removedCount = 0;
+            string[] prefabGuids = AssetDatabase.FindAssets("t:Prefab", new[] { "Assets" });
+
+            for (int i = 0; i < prefabGuids.Length; i++)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(prefabGuids[i]);
+                GameObject root = PrefabUtility.LoadPrefabContents(path);
+                int removedInThisPrefab = RemoveMissingScriptsRecursive(root);
+                if (removedInThisPrefab > 0)
+                {
+                    PrefabUtility.SaveAsPrefabAsset(root, path);
+                    removedCount += removedInThisPrefab;
+                }
+
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+
+            return removedCount;
+        }
+
+        private static int ReportMissingScriptsInPrefabs()
+        {
+            int foundCount = 0;
+            string[] prefabGuids = AssetDatabase.FindAssets("t:Prefab", new[] { "Assets" });
+
+            for (int i = 0; i < prefabGuids.Length; i++)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(prefabGuids[i]);
+                GameObject root = PrefabUtility.LoadPrefabContents(path);
+                foundCount += ReportMissingScriptsRecursive(root, $"Prefab:{path}");
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+
+            return foundCount;
+        }
+
+        private static int RemoveMissingScriptsRecursive(GameObject root)
+        {
+            int removedCount = 0;
+            Queue<Transform> queue = new Queue<Transform>();
+            queue.Enqueue(root.transform);
+
+            while (queue.Count > 0)
+            {
+                Transform current = queue.Dequeue();
+                removedCount += GameObjectUtility.RemoveMonoBehavioursWithMissingScript(current.gameObject);
+
+                for (int i = 0; i < current.childCount; i++)
+                {
+                    queue.Enqueue(current.GetChild(i));
+                }
+            }
+
+            return removedCount;
+        }
+
+        private static int ReportMissingScriptsRecursive(GameObject root, string owner)
+        {
+            int foundCount = 0;
+            Queue<Transform> queue = new Queue<Transform>();
+            queue.Enqueue(root.transform);
+
+            while (queue.Count > 0)
+            {
+                Transform current = queue.Dequeue();
+                int missingCount = GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(current.gameObject);
+                if (missingCount > 0)
+                {
+                    foundCount += missingCount;
+                    Component[] components = current.GetComponents<Component>();
+                    for (int i = 0; i < components.Length; i++)
+                    {
+                        if (components[i] == null)
+                        {
+                            string path = GetTransformPath(current);
+                            Debug.LogWarning($"[SchoolOfFish][Debug] Missing Script detected: owner={owner}, object={path}, componentIndex={i}");
+                        }
+                    }
+                }
+
+                for (int i = 0; i < current.childCount; i++)
+                {
+                    queue.Enqueue(current.GetChild(i));
+                }
+            }
+
+            return foundCount;
+        }
+
+        private static string GetTransformPath(Transform t)
+        {
+            if (t == null)
+            {
+                return "<null>";
+            }
+
+            string path = t.name;
+            Transform parent = t.parent;
+            while (parent != null)
+            {
+                path = parent.name + "/" + path;
+                parent = parent.parent;
+            }
+
+            return path;
         }
 
         private static void SetupVolumeOverrides()
@@ -228,6 +415,15 @@ namespace SchoolOfFish.Editor
             T asset = ScriptableObject.CreateInstance<T>();
             AssetDatabase.CreateAsset(asset, path);
             return asset;
+        }
+
+        private static void EnsureFolder(string parent, string child)
+        {
+            string combined = parent + "/" + child;
+            if (!AssetDatabase.IsValidFolder(combined))
+            {
+                AssetDatabase.CreateFolder(parent, child);
+            }
         }
 
         private static void SetProperty(SerializedObject so, string propName, Object value)

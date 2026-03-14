@@ -117,6 +117,7 @@ namespace SchoolOfFish.Editor
             EnvironmentProvider envProvider = Object.FindFirstObjectByType<EnvironmentProvider>();
             PredatorController predator = Object.FindFirstObjectByType<PredatorController>();
             CameraManager camManager = Object.FindFirstObjectByType<CameraManager>();
+            BoidsRuntimeTuningPanel tuningPanel = Object.FindFirstObjectByType<BoidsRuntimeTuningPanel>();
 
             if (boidsManager == null)
             {
@@ -165,6 +166,21 @@ namespace SchoolOfFish.Editor
                 SerializedObject so = new SerializedObject(boidsManager);
                 so.FindProperty("schoolRoot").objectReferenceValue = boidsManager.transform;
                 so.ApplyModifiedProperties();
+            }
+
+            if (tuningPanel == null)
+            {
+                GameObject panelObj = new GameObject("BoidsRuntimeTuningPanel");
+                tuningPanel = panelObj.AddComponent<BoidsRuntimeTuningPanel>();
+            }
+
+            if (tuningPanel != null)
+            {
+                SerializedObject soPanel = new SerializedObject(tuningPanel);
+                SetProperty(soPanel, "settings", boidsSO);
+                SetProperty(soPanel, "boidsManager", boidsManager);
+                soPanel.ApplyModifiedProperties();
+                EditorUtility.SetDirty(tuningPanel);
             }
 
             // グローバルVolumeにpost-processコンポーネントを追加（なければ）

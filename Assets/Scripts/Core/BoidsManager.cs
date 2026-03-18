@@ -151,7 +151,7 @@ namespace SchoolOfFish.Core
                 Vector3 cohesion = ComputeCohesion(i, state.Position);
                 Vector3 flee = ComputeFlee(state.Position);
                 Vector3 wander = ComputeWander(i, dt);
-                Vector3 boundary = ComputeBoundary(state.Position);
+                Vector3 boundary = ComputeBoundary(state.Position, state.Velocity);
 
                 bool isPanicked = UpdatePanicState(ref state, neighborCount, panickedNeighborCount, flee.sqrMagnitude > 0f, dt);
 
@@ -390,27 +390,82 @@ namespace SchoolOfFish.Core
             return new Vector3(x, y * 0.5f, z).normalized;
         }
 
-        private Vector3 ComputeBoundary(Vector3 worldPos)
+        private Vector3 ComputeBoundary(Vector3 worldPos, Vector3 worldVel)
         {
-            Vector3 center = schoolRoot.position;
-            Vector3 offset = worldPos - center;
+            Vector3 localPos = schoolRoot.InverseTransformPoint(worldPos);
+            Vector3 localVel = schoolRoot.InverseTransformDirection(worldVel);
             Vector3 ext = settings.spawnExtents;
+            float repulsionDistance = Mathf.Max(0.1f, settings.boundaryRepulsionDistance);
+            float lookAhead = Mathf.Max(0f, settings.boundaryLookAheadTime);
+            float velBoost = Mathf.Max(0f, settings.boundaryVelocityBoost);
+            float outsideBoost = Mathf.Max(0f, settings.boundaryOutsideBoost);
+            float speedRef = Mathf.Max(0.1f, settings.baseMaxSpeed);
 
             Vector3 steer = Vector3.zero;
-            if (Mathf.Abs(offset.x) > ext.x)
+
+            steer.x = ComputeAxisBoundaryRepulsion(localPos.x, localVel.x, ext.x, repulsionDistance, lookAhead, speedRef, velBoost, outsideBoost);
+            steer.y = ComputeAxisBoundaryRepulsion(localPos.y, localVel.y, ext.y, repulsionDistance, lookAhead, speedRef, velBoost, outsideBoost) * 0.6f;
+            steer.z = ComputeAxisBoundaryRepulsion(localPos.z, localVel.z, ext.z, repulsionDistance, lookAhead, speedRef, velBoost, outsideBoost);
+
+            return steer;
+        }
+
+        private static float ComputeAxisBoundaryRepulsion(
+            float localPos,
+            float localVel,
+            float halfExtent,
+            float repulsionDistance,
+            float lookAhead,
+            float speedRef,
+            float velocityBoost,
+            float outsideBoost)
+        {
+            float current = ComputeAxisBoundaryRepulsionAtPoint(localPos, localVel, halfExtent, repulsionDistance, speedRef, velocityBoost, outsideBoost);
+            if (lookAhead <= 0f)
             {
-                steer.x = -Mathf.Sign(offset.x);
-            }
-            if (Mathf.Abs(offset.y) > ext.y)
-            {
-                steer.y = -Mathf.Sign(offset.y) * 0.6f;
-            }
-            if (Mathf.Abs(offset.z) > ext.z)
-            {
-                steer.z = -Mathf.Sign(offset.z);
+                return current;
             }
 
-            return steer.normalized;
+            float futurePos = localPos + localVel * lookAhead;
+            float future = ComputeAxisBoundaryRepulsionAtPoint(futurePos, localVel, halfExtent, repulsionDistance, speedRef, velocityBoost, outsideBoost);
+
+            return Mathf.Abs(future) > Mathf.Abs(current) ? future : current;
+        }
+
+        private static float ComputeAxisBoundaryRepulsionAtPoint(
+            float localPos,
+            float localVel,
+            float halfExtent,
+            float repulsionDistance,
+            float speedRef,
+            float velocityBoost,
+            float outsideBoost)
+        {
+            float abs = Mathf.Abs(localPos);
+            float sign = Mathf.Sign(localPos);
+
+            if (abs >= halfExtent)
+            {
+                float over = abs - halfExtent;
+                float over01 = Mathf.Clamp01(over / repulsionDistance);
+                return -sign * (1f + over01 * outsideBoost);
+            }
+
+            float start = Mathf.Max(0f, halfExtent - repulsionDistance);
+            if (abs <= start)
+            {
+                return 0f;
+            }
+
+            float t = Mathf.InverseLerp(start, halfExtent, abs);
+            float proximity = Mathf.SmoothStep(0f, 1f, t);
+
+            // 壁方向へ進んでいる場合にだけ斥力を増幅する。
+            float outwardSpeed = Mathf.Max(0f, sign * localVel);
+            float outward01 = Mathf.Clamp01(outwardSpeed / speedRef);
+            float directionalBoost = 1f + outward01 * velocityBoost;
+
+            return -sign * proximity * directionalBoost;
         }
 
         private bool UpdatePanicState(ref AgentState state, int neighborCount, int panickedNeighborCount, bool predatorNearby, float dt)

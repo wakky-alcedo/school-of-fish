@@ -19,6 +19,10 @@ namespace SchoolOfFish.Data
         [Min(0f)] public float cohesionWeight = 1.1f;
         [Min(0f)] public float wanderWeight = 0.35f;
         [Min(0f)] public float boundaryWeight = 0.8f;
+        [Min(0.1f)] public float boundaryRepulsionDistance = 3f;
+        [Min(0f)] public float boundaryLookAheadTime = 0.45f;
+        [Min(0f)] public float boundaryVelocityBoost = 1.2f;
+        [Min(0f)] public float boundaryOutsideBoost = 2f;
 
         [Header("Panic")]
         [Min(0f)] public float predatorFearRadius = 8f;

@@ -8,6 +8,7 @@ namespace SchoolOfFish.Core
         [SerializeField] private TrailRenderer trail;
         [SerializeField] private float trailBaseTime = 0.55f;
         [SerializeField] private float trailPanicBonus = 0.35f;
+        [SerializeField, Range(0f, 80f)] private float maxPitchAngleDegrees = 20f;
         [SerializeField] private Color calmEmission = new Color(0.02f, 0.15f, 0.2f);
         [SerializeField] private Color panicEmission = new Color(0.2f, 1f, 0.9f);
 
@@ -36,11 +37,36 @@ namespace SchoolOfFish.Core
 
             if (velocity.sqrMagnitude > 0.0001f)
             {
+                Vector3 forward = ConstrainPitch(velocity.normalized, transform.forward, maxPitchAngleDegrees);
                 transform.rotation = Quaternion.Slerp(
                     transform.rotation,
-                    Quaternion.LookRotation(velocity.normalized, Vector3.up),
+                    Quaternion.LookRotation(forward, Vector3.up),
                     0.25f);
             }
+        }
+
+        public void SetMaxPitchAngle(float maxPitch)
+        {
+            maxPitchAngleDegrees = Mathf.Clamp(maxPitch, 0f, 80f);
+        }
+
+        private static Vector3 ConstrainPitch(Vector3 desiredForward, Vector3 fallbackForward, float maxPitchAngleDegrees)
+        {
+            Vector3 horizontal = new Vector3(desiredForward.x, 0f, desiredForward.z);
+            if (horizontal.sqrMagnitude < 0.0001f)
+            {
+                horizontal = new Vector3(fallbackForward.x, 0f, fallbackForward.z);
+                if (horizontal.sqrMagnitude < 0.0001f)
+                {
+                    horizontal = Vector3.forward;
+                }
+            }
+
+            horizontal.Normalize();
+
+            float maxY = Mathf.Tan(Mathf.Deg2Rad * Mathf.Clamp(maxPitchAngleDegrees, 0f, 80f));
+            float clampedY = Mathf.Clamp(desiredForward.y, -maxY, maxY);
+            return new Vector3(horizontal.x, clampedY, horizontal.z).normalized;
         }
 
         public void SetPanicVisual(float panic01)

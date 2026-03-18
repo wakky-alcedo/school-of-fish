@@ -23,6 +23,8 @@ namespace SchoolOfFish.Data
         [Min(0f)] public float boundaryLookAheadTime = 0.45f;
         [Min(0f)] public float boundaryVelocityBoost = 1.2f;
         [Min(0f)] public float boundaryOutsideBoost = 2f;
+        [Range(0f, 1f)] public float verticalSwimMultiplier = 0.4f;
+        [Range(0f, 80f)] public float maxPitchAngleDegrees = 20f;
 
         [Header("Panic")]
         [Min(0f)] public float predatorFearRadius = 8f;

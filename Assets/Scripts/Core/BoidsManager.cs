@@ -139,6 +139,7 @@ namespace SchoolOfFish.Core
             float dayNightBlend = environmentProvider != null ? environmentProvider.Night01 : 0f;
             float alignmentWeight = settings.alignmentWeight * Mathf.Lerp(1f, settings.nightAlignmentMultiplier, dayNightBlend);
             float speedFactor = Mathf.Lerp(1f, settings.nightSpeedMultiplier, dayNightBlend);
+            float verticalScale = Mathf.Clamp01(settings.verticalSwimMultiplier);
 
             for (int i = 0; i < _states.Count; i++)
             {
@@ -152,6 +153,13 @@ namespace SchoolOfFish.Core
                 Vector3 flee = ComputeFlee(state.Position);
                 Vector3 wander = ComputeWander(i, dt);
                 Vector3 boundary = ComputeBoundary(state.Position, state.Velocity);
+
+                separation = ScaleVertical(separation, verticalScale);
+                alignment = ScaleVertical(alignment, verticalScale);
+                cohesion = ScaleVertical(cohesion, verticalScale);
+                flee = ScaleVertical(flee, verticalScale);
+                wander = ScaleVertical(wander, verticalScale);
+                boundary = ScaleVertical(boundary, verticalScale);
 
                 bool isPanicked = UpdatePanicState(ref state, neighborCount, panickedNeighborCount, flee.sqrMagnitude > 0f, dt);
 
@@ -176,6 +184,7 @@ namespace SchoolOfFish.Core
 
                 Vector3 steer = Vector3.ClampMagnitude(desired, maxForce);
                 state.Velocity = Vector3.ClampMagnitude(state.Velocity + steer * dt, maxSpeed);
+                state.Velocity = ScaleVertical(state.Velocity, verticalScale);
                 state.Position += state.Velocity * dt;
 
                 KeepInsideBounds(ref state.Position, ref state.Velocity);
@@ -199,6 +208,7 @@ namespace SchoolOfFish.Core
                     UnityEngine.Random.Range(-settings.spawnExtents.z, settings.spawnExtents.z));
 
                 FishAgent agent = CreateFishInstance(schoolRoot.TransformPoint(localPos));
+                agent.SetMaxPitchAngle(settings.maxPitchAngleDegrees);
                 _agents.Add(agent);
 
                 Vector3 dir = UnityEngine.Random.onUnitSphere;
@@ -211,12 +221,18 @@ namespace SchoolOfFish.Core
                 _states.Add(new AgentState
                 {
                     Position = agent.transform.position,
-                    Velocity = dir.normalized * settings.baseMaxSpeed * 0.6f,
+                    Velocity = ScaleVertical(dir.normalized * settings.baseMaxSpeed * 0.6f, Mathf.Clamp01(settings.verticalSwimMultiplier)),
                     PanicTimer = 0f,
                     Personality = GetRandomPersonality(),
                     WanderSeed = UnityEngine.Random.value * 1000f
                 });
             }
+        }
+
+        private static Vector3 ScaleVertical(Vector3 v, float verticalScale)
+        {
+            v.y *= verticalScale;
+            return v;
         }
 
         private FishAgent CreateFishInstance(Vector3 worldPosition)

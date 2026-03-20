@@ -16,12 +16,19 @@ namespace SchoolOfFish.Core
         [SerializeField] private PredatorController predator;
         [SerializeField] private EnvironmentProvider environmentProvider;
         [SerializeField] private FishPersonality[] personalityPool;
+        [Header("Debug View")]
+        [SerializeField] private bool showTankEdges;
+        [SerializeField] private Color tankEdgeColor = new Color(0.2f, 0.8f, 1f, 0.65f);
+        [SerializeField, Min(0.005f)] private float tankEdgeWidth = 0.03f;
 
         private readonly List<FishAgent> _agents = new List<FishAgent>(512);
         private readonly List<AgentState> _states = new List<AgentState>(512);
         private readonly Dictionary<int, List<int>> _spatialHash = new Dictionary<int, List<int>>(512);
+        private readonly List<LineRenderer> _tankEdgeRenderers = new List<LineRenderer>(12);
         private Material _runtimeFishMaterial;
         private Material _runtimeTrailMaterial;
+        private Material _runtimeTankEdgeMaterial;
+        private Transform _tankEdgeRoot;
 
         private struct AgentState
         {
@@ -54,6 +61,7 @@ namespace SchoolOfFish.Core
             }
 
             SpawnInitialFish();
+            RefreshTankEdgeVisibility();
         }
 
         private void TryAutoAssignReferences()
@@ -129,6 +137,8 @@ namespace SchoolOfFish.Core
         private void Update()
         {
             float dt = Mathf.Min(Time.deltaTime, 0.05f);
+            RefreshTankEdgeVisibility();
+
             if (dt <= 0f || _states.Count == 0)
             {
                 return;
@@ -296,6 +306,120 @@ namespace SchoolOfFish.Core
             }
 
             return root.AddComponent<FishAgent>();
+        }
+
+        private void RefreshTankEdgeVisibility()
+        {
+            if (!showTankEdges || settings == null || schoolRoot == null)
+            {
+                if (_tankEdgeRoot != null)
+                {
+                    Destroy(_tankEdgeRoot.gameObject);
+                    _tankEdgeRoot = null;
+                    _tankEdgeRenderers.Clear();
+                }
+
+                return;
+            }
+
+            if (_tankEdgeRoot == null)
+            {
+                CreateTankEdges();
+            }
+
+            UpdateTankEdges();
+        }
+
+        private void CreateTankEdges()
+        {
+            GameObject root = new GameObject("TankEdges");
+            root.transform.SetParent(schoolRoot, false);
+            _tankEdgeRoot = root.transform;
+
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null)
+            {
+                shader = Shader.Find("Sprites/Default");
+            }
+
+            if (_runtimeTankEdgeMaterial == null && shader != null)
+            {
+                _runtimeTankEdgeMaterial = new Material(shader)
+                {
+                    color = tankEdgeColor
+                };
+            }
+
+            for (int i = 0; i < 12; i++)
+            {
+                GameObject edgeObj = new GameObject("Edge_" + i);
+                edgeObj.transform.SetParent(_tankEdgeRoot, false);
+                LineRenderer lr = edgeObj.AddComponent<LineRenderer>();
+                lr.useWorldSpace = false;
+                lr.positionCount = 2;
+                lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                lr.receiveShadows = false;
+                lr.loop = false;
+                // Keep lines visible from any view direction by facing the camera.
+                lr.alignment = LineAlignment.View;
+                lr.textureMode = LineTextureMode.Stretch;
+                lr.numCornerVertices = 2;
+                lr.numCapVertices = 2;
+                lr.startColor = tankEdgeColor;
+                lr.endColor = tankEdgeColor;
+                lr.startWidth = tankEdgeWidth;
+                lr.endWidth = tankEdgeWidth;
+                if (_runtimeTankEdgeMaterial != null)
+                {
+                    lr.sharedMaterial = _runtimeTankEdgeMaterial;
+                }
+
+                _tankEdgeRenderers.Add(lr);
+            }
+        }
+
+        private void UpdateTankEdges()
+        {
+            if (_tankEdgeRoot == null || _tankEdgeRenderers.Count != 12)
+            {
+                return;
+            }
+
+            if (_runtimeTankEdgeMaterial != null)
+            {
+                _runtimeTankEdgeMaterial.color = tankEdgeColor;
+            }
+
+            Vector3 ext = settings.spawnExtents;
+            Vector3[] corners = new Vector3[8]
+            {
+                new Vector3(-ext.x, -ext.y, -ext.z),
+                new Vector3(ext.x, -ext.y, -ext.z),
+                new Vector3(ext.x, -ext.y, ext.z),
+                new Vector3(-ext.x, -ext.y, ext.z),
+                new Vector3(-ext.x, ext.y, -ext.z),
+                new Vector3(ext.x, ext.y, -ext.z),
+                new Vector3(ext.x, ext.y, ext.z),
+                new Vector3(-ext.x, ext.y, ext.z)
+            };
+
+            int[,] edges = new int[12, 2]
+            {
+                { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 },
+                { 4, 5 }, { 5, 6 }, { 6, 7 }, { 7, 4 },
+                { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 }
+            };
+
+            for (int i = 0; i < 12; i++)
+            {
+                LineRenderer lr = _tankEdgeRenderers[i];
+                lr.startColor = tankEdgeColor;
+                lr.endColor = tankEdgeColor;
+                lr.startWidth = tankEdgeWidth;
+                lr.endWidth = tankEdgeWidth;
+                lr.SetPosition(0, corners[edges[i, 0]]);
+                lr.SetPosition(1, corners[edges[i, 1]]);
+            }
         }
 
         private FishPersonality GetRandomPersonality()

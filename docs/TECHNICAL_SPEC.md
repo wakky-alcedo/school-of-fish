@@ -1,7 +1,7 @@
 # Healing Fish School — 技術仕様書
 
 > **対応要求仕様書:** [SPECIFICATION.md](../SPECIFICATION.md)
-> 最終更新: 2026-03-14
+> 最終更新: 2026-03-21
 
 ---
 
@@ -88,13 +88,15 @@ private struct AgentState
    - `ComputeAlignment()` / `ComputeCohesion()`
    - `ComputeFlee()` — Predator 距離チェック
    - `ComputeWander()` — Perlin ノイズベースの揺らぎ
-   - `ComputeBoundary()` — 境界からの反発
+    - `ComputeBoundary(position, velocity)` — 先読み付き境界回避
+    - `ScaleVertical(...)` — ステアリング力の Y 成分を抑制
    - `UpdatePanicState()` — panic 発火・伝播・減衰
    - `maxSpeed` / `maxForce` 計算（panic 中は乗数増加）
-   - ステアリング合算 → 速度・位置更新
+    - ステアリング合算 → 速度・位置更新（速度 Y 成分を再抑制）
    - `KeepInsideBounds()` — 境界で速度反転・クランプ
 3. `FishAgent.ApplySimulation()` で位置・回転を反映
 4. `FishAgent.SetPanicVisual(panic01)` で Emission / Trail を更新
+5. `RefreshTankEdgeVisibility()` で水槽の辺表示（任意）を更新
 
 **初期生成定義（向き整合）:**
 
@@ -110,6 +112,20 @@ CellKey = FNV-style hash(cellX, cellY, cellZ)
 cellSize = BoidsSettings.hashCellSize  (default: 5.0)
 探索範囲   = ±maxNeighborCellsPerAxis セル (default: 1 → 3³= 27 セル)
 ```
+
+**境界回避アルゴリズム（最新版）:**
+
+- 境界回避は `position` と `velocity` を使う予測型
+- `boundaryLookAheadTime` 秒先の位置を評価し，現在位置より危険なら先読み結果を採用
+- 壁方向へ進んでいる速度に応じて `boundaryVelocityBoost` で斥力増幅
+- 境界外に出た場合は `boundaryOutsideBoost` で押し戻しを強化
+- 出力ベクトルは正規化せず強度を保持（弱い回避/強い回避を表現）
+
+**デバッグ表示（任意）:**
+
+- `showTankEdges=true` のとき，`schoolRoot` 配下に `TankEdges` を生成
+- 12 本の `LineRenderer` で境界ボックスの辺を描画
+- `LineAlignment.View` を使い，視点変更時も視認性を維持
 
 **パニックロジック:**
 
@@ -140,11 +156,15 @@ void ApplySimulation(Vector3 position, Vector3 velocity)
 
 // panic01 = 0.0（平常）〜 1.0（フルパニック）
 void SetPanicVisual(float panic01)
+
+// BoidsManager からピッチ上限を反映
+void SetMaxPitchAngle(float maxPitch)
 ```
 
 **ビジュアル更新詳細:**
 
-- **回転:** `Quaternion.Slerp(current, LookRotation(velocity), 0.25f)` — 速度方向へ滑らかに向く
+- **回転:** `ConstrainPitch` で前方ベクトルのピッチを制限してから
+  `Quaternion.Slerp(current, LookRotation(forward), 0.25f)` を適用
 - **Emission:** `MaterialPropertyBlock` で `_EmissionColor` を補間（GPU Instancing と共存可能）
   - 平常: `(0.02, 0.15, 0.20)` / パニック: `(0.20, 1.00, 0.90)`
 - **TrailRenderer:**
@@ -262,6 +282,12 @@ Night01   = InverseLerp(0.1, -0.35, sunHeight)  // 正午=0, 深夜=1
 | `cohesionWeight` | float | 1.1 | 結合の重み |
 | `wanderWeight` | float | 0.35 | 揺らぎの重み |
 | `boundaryWeight` | float | 0.8 | 境界反発の重み |
+| `boundaryRepulsionDistance` | float | 3.0 | 境界回避の開始距離 |
+| `boundaryLookAheadTime` | float | 0.45 | 境界回避の先読み時間 [s] |
+| `boundaryVelocityBoost` | float | 1.2 | 壁方向速度による斥力の増幅係数 |
+| `boundaryOutsideBoost` | float | 2.0 | 境界外での押し戻し強化係数 |
+| `verticalSwimMultiplier` | float [0〜1] | 0.4 | 全ステアリング/速度の Y 成分係数 |
+| `maxPitchAngleDegrees` | float [0〜80] | 20.0 | 個体のピッチ角上限 [deg] |
 | `predatorFearRadius` | float | 8.0 | Flee 発動距離 |
 | `panicDuration` | float | 2.5 | パニック継続時間 [s] |
 | `panicSpreadRadius` | float | 5.5 | パニック伝播の影響範囲 |
@@ -311,6 +337,7 @@ SampleScene
 │     ← EnvironmentProvider が Bloom / DoF / Vignette / ColorAdjustments を更新
 ├── SchoolRoot               [BoidsManager]
 │     ← 小魚 500 体の親 Transform を兼ねる
+│     ├── TankEdges (optional) [LineRenderer x 12]
 │     └── Fish(0〜499)       [FishAgent, TrailRenderer]
 │          └── Body          [Renderer]
 ├── EnvironmentController    [EnvironmentProvider]

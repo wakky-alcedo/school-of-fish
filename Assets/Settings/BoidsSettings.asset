@@ -13,16 +13,22 @@ MonoBehaviour:
   m_Name: BoidsSettings
   m_EditorClassIdentifier: Assembly-CSharp::SchoolOfFish.Data.BoidsSettings
   fishCount: 500
-  spawnExtents: {x: 30, y: 12, z: 30}
+  spawnExtents: {x: 20, y: 10, z: 20}
   neighborRadius: 4.5
   separationRadius: 1.6
-  baseMaxSpeed: 6
+  baseMaxSpeed: 1
   baseMaxForce: 10
   separationWeight: 1.7
   alignmentWeight: 1
   cohesionWeight: 1.1
   wanderWeight: 0.35
   boundaryWeight: 0.8
+  boundaryRepulsionDistance: 10
+  boundaryLookAheadTime: 0.45
+  boundaryVelocityBoost: 1.2
+  boundaryOutsideBoost: 2
+  verticalSwimMultiplier: 0.8
+  maxPitchAngleDegrees: 40
   predatorFearRadius: 8
   panicDuration: 2.5
   panicSpreadRadius: 5.5

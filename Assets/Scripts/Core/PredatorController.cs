@@ -15,6 +15,11 @@ namespace SchoolOfFish.Core
         [SerializeField] private float moveSpeed = 4.5f;
         [SerializeField] private float turnSpeed = 4f;
 
+        [Header("Visual")]
+        [SerializeField] private bool ensureVisualOnStart = true;
+        [SerializeField, Min(1f)] private float sizeMultiplier = 3f;
+        [SerializeField] private Color bodyColor = new Color(1f, 0.45f, 0.2f, 1f);
+
         [Header("Circle")]
         [SerializeField] private Transform circleCenter;
         [SerializeField] private float circleRadius = 18f;
@@ -28,6 +33,14 @@ namespace SchoolOfFish.Core
         private int _waypointIndex;
 
         public Vector3 Position => transform.position;
+
+        private void Awake()
+        {
+            if (ensureVisualOnStart)
+            {
+                EnsurePredatorVisual();
+            }
+        }
 
         private void Update()
         {
@@ -80,6 +93,50 @@ namespace SchoolOfFish.Core
 
             Quaternion lookRotation = Quaternion.LookRotation(direction, Vector3.up);
             transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation, turnSpeed * Time.deltaTime);
+        }
+
+        private void EnsurePredatorVisual()
+        {
+            Transform body = transform.Find("Body");
+            if (body == null)
+            {
+                GameObject bodyObj = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                bodyObj.name = "Body";
+                bodyObj.transform.SetParent(transform, false);
+                bodyObj.transform.localPosition = Vector3.zero;
+                bodyObj.transform.localRotation = Quaternion.Euler(90f, 180f, 0f);
+
+                Collider col = bodyObj.GetComponent<Collider>();
+                if (col != null)
+                {
+                    Destroy(col);
+                }
+
+                body = bodyObj.transform;
+            }
+
+            Vector3 baseScale = new Vector3(0.18f, 0.35f, 0.18f);
+            body.localScale = baseScale * sizeMultiplier;
+
+            Renderer renderer = body.GetComponent<Renderer>();
+            if (renderer == null)
+            {
+                return;
+            }
+
+            Material material = renderer.material;
+            material.color = bodyColor;
+
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor("_BaseColor", bodyColor);
+            }
+
+            if (material.HasProperty("_EmissionColor"))
+            {
+                material.EnableKeyword("_EMISSION");
+                material.SetColor("_EmissionColor", bodyColor * 0.15f);
+            }
         }
 
         private void OnDrawGizmosSelected()
